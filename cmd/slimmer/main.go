@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,21 +14,16 @@ var version = "dev"
 
 var rootCmd = &cobra.Command{
 	Use:     "slimmer",
-	Short:   "Optimize Docker images: multi-stage builds, distroless bases, minimal attack surface",
+	Short:   "Optimize Docker images: analyze Dockerfiles and measure real image sizes",
 	Version: version,
 }
 
+// ── generate ──────────────────────────────────────────────────────────────────
+
 var generateCmd = &cobra.Command{
 	Use:   "generate",
-	Short: "Generate an optimized Dockerfile from scratch",
+	Short: "Generate an optimized multi-stage Dockerfile",
 	RunE:  runGenerate,
-}
-
-var analyzeCmd = &cobra.Command{
-	Use:   "analyze <Dockerfile>",
-	Short: "Analyze an existing Dockerfile and report improvement opportunities",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runAnalyze,
 }
 
 var (
@@ -40,8 +36,7 @@ func init() {
 	generateCmd.Flags().StringVarP(&baseImage, "base", "b", "golang:1.22-alpine", "Builder base image")
 	generateCmd.Flags().StringSliceVarP(&artifacts, "artifacts", "a", []string{"/app/binary"}, "Artifacts to copy to runtime stage")
 	generateCmd.Flags().StringVarP(&output, "output", "o", "Dockerfile.optimized", "Output file path")
-
-	rootCmd.AddCommand(generateCmd, analyzeCmd)
+	rootCmd.AddCommand(generateCmd)
 }
 
 func runGenerate(cmd *cobra.Command, _ []string) error {
@@ -58,6 +53,19 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	}
 	slog.Info("done", "path", output)
 	return nil
+}
+
+// ── analyze ───────────────────────────────────────────────────────────────────
+
+var analyzeCmd = &cobra.Command{
+	Use:   "analyze <Dockerfile>",
+	Short: "Analyze a Dockerfile and report improvement opportunities",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runAnalyze,
+}
+
+func init() {
+	rootCmd.AddCommand(analyzeCmd)
 }
 
 func runAnalyze(_ *cobra.Command, args []string) error {
@@ -77,16 +85,90 @@ func runAnalyze(_ *cobra.Command, args []string) error {
 
 	issues := optimizer.AnalyzeIssues(df)
 	if len(issues) == 0 {
-		fmt.Println("\n✓ No issues found")
+		fmt.Println("\n  No issues found.")
 		return nil
 	}
 
-	fmt.Printf("\nIssues (%d):\n", len(issues))
+	fmt.Printf("\n  Issues (%d):\n", len(issues))
 	for i, issue := range issues {
-		fmt.Printf("  %d. %s\n", i+1, issue)
+		fmt.Printf("    %d. %s\n", i+1, issue)
 	}
 	return nil
 }
+
+// ── measure ───────────────────────────────────────────────────────────────────
+
+var measureCmd = &cobra.Command{
+	Use:   "measure [IMAGE] [--before IMAGE --after IMAGE]",
+	Short: "Measure real image sizes via Docker daemon",
+	Long: `Connects to the local Docker daemon and reports the actual uncompressed
+size of one image, or computes the size reduction between two images.
+
+Single image:
+  slimmer measure myapp:latest
+
+Before/after comparison:
+  slimmer measure --before myapp:v1-legacy --after myapp:v2-optimized`,
+	RunE: runMeasure,
+}
+
+var (
+	measureBefore string
+	measureAfter  string
+)
+
+func init() {
+	measureCmd.Flags().StringVar(&measureBefore, "before", "", "Image reference to use as baseline")
+	measureCmd.Flags().StringVar(&measureAfter, "after", "", "Image reference to compare against baseline")
+	rootCmd.AddCommand(measureCmd)
+}
+
+func runMeasure(_ *cobra.Command, args []string) error {
+	ctx := context.Background()
+
+	// Comparison mode: --before and --after
+	if measureBefore != "" && measureAfter != "" {
+		result, err := optimizer.CompareImages(ctx, measureBefore, measureAfter)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Image size comparison\n")
+		fmt.Printf("  Before  %-40s  %s  (%d layers)\n",
+			result.Before.Ref, result.Before.HumanSize(), result.Before.Layers)
+		fmt.Printf("  After   %-40s  %s  (%d layers)\n",
+			result.After.Ref, result.After.HumanSize(), result.After.Layers)
+		fmt.Println()
+
+		if result.SavedBytes >= 0 {
+			fmt.Printf("  Saved   %s  (%.1f%% reduction)\n",
+				optimizer.FormatBytes(result.SavedBytes), result.ReductionPct)
+		} else {
+			fmt.Printf("  Delta   +%s  (after image is larger)\n",
+				optimizer.FormatBytes(-result.SavedBytes))
+		}
+		return nil
+	}
+
+	// Single image mode
+	if len(args) == 0 {
+		return fmt.Errorf("provide an image reference or use --before/--after for comparison")
+	}
+
+	stats, err := optimizer.InspectImage(ctx, args[0])
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Image:        %s\n", stats.Ref)
+	fmt.Printf("ID:           %s\n", stats.ID)
+	fmt.Printf("Size:         %s\n", stats.HumanSize())
+	fmt.Printf("Layers:       %d\n", stats.Layers)
+	fmt.Printf("Architecture: %s/%s\n", stats.OS, stats.Architecture)
+	return nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
