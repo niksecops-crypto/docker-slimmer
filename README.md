@@ -1,5 +1,11 @@
 # Docker-Slimmer: Production-Grade Image Optimizer
 
+[![CI](https://github.com/niksecops-crypto/docker-slimmer/actions/workflows/ci.yml/badge.svg)](https://github.com/niksecops-crypto/docker-slimmer/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/niksecops-crypto/docker-slimmer)](https://goreportcard.com/report/github.com/niksecops-crypto/docker-slimmer)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org/)
+[![Docker](https://img.shields.io/badge/GHCR-ghcr.io-blue?logo=docker)](https://github.com/niksecops-crypto/docker-slimmer/pkgs/container/docker-slimmer)
+
 Docker-Slimmer is an automated tool designed to transform legacy, bloated Dockerfiles into highly-efficient, secure, and lightweight multi-stage builds. It helps DevOps engineers modernize inherited container images by applying industry best practices such as Distroless base images and aggressive cache cleaning.
 
 ## Key Features
