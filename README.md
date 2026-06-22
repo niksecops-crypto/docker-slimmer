@@ -86,6 +86,10 @@ go build -o slimmer ./cmd/slimmer
 - **Distroless for security**: prefer `gcr.io/distroless/static` for statically linked binaries (Go, Rust).
 - **Test entrypoints**: distroless images have no shell — ensure all runtime dependencies are explicitly copied.
 
+## Documentation
+
+- [Production Guide](docs/production-guide.md) — CI/CD integration, base image selection, distroless security benefits, troubleshooting
+
 ## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
