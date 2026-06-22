@@ -9,47 +9,87 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var version = "dev"
+
+var rootCmd = &cobra.Command{
+	Use:     "slimmer",
+	Short:   "Optimize Docker images: multi-stage builds, distroless bases, minimal attack surface",
+	Version: version,
+}
+
+var generateCmd = &cobra.Command{
+	Use:   "generate",
+	Short: "Generate an optimized Dockerfile from scratch",
+	RunE:  runGenerate,
+}
+
+var analyzeCmd = &cobra.Command{
+	Use:   "analyze <Dockerfile>",
+	Short: "Analyze an existing Dockerfile and report improvement opportunities",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runAnalyze,
+}
+
 var (
 	baseImage string
 	artifacts []string
 	output    string
 )
 
-func main() {
+func init() {
+	generateCmd.Flags().StringVarP(&baseImage, "base", "b", "golang:1.22-alpine", "Builder base image")
+	generateCmd.Flags().StringSliceVarP(&artifacts, "artifacts", "a", []string{"/app/binary"}, "Artifacts to copy to runtime stage")
+	generateCmd.Flags().StringVarP(&output, "output", "o", "Dockerfile.optimized", "Output file path")
+
+	rootCmd.AddCommand(generateCmd, analyzeCmd)
+}
+
+func runGenerate(cmd *cobra.Command, _ []string) error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	var rootCmd = &cobra.Command{
-		Use:   "slimmer",
-		Short: "Docker-Slimmer: Transform legacy Dockerfiles into optimized multi-stage builds",
-		Long: `Docker-Slimmer is a production-ready utility for automating the optimization 
-of Docker images. It analyzes current build patterns and generates 
-highly-efficient multi-stage Dockerfiles based on security best practices (Distroless/Alpine).`,
-		Run: func(cmd *cobra.Command, args []string) {
-			slog.Info("Starting optimization process", "base", baseImage, "artifacts", artifacts)
+	slog.Info("generating optimized Dockerfile", "base", baseImage, "artifacts", artifacts)
 
-			opt := optimizer.NewOptimizer(baseImage)
-			optimizedContent := opt.Optimize(artifacts, map[string]string{"APP_ENV": "production"})
+	opt := optimizer.NewOptimizer(baseImage)
+	content := opt.Optimize(artifacts, map[string]string{"APP_ENV": "production"})
 
-			if output != "" {
-				err := os.WriteFile(output, []byte(optimizedContent), 0644)
-				if err != nil {
-					slog.Error("Failed to write output file", "error", err)
-					os.Exit(1)
-				}
-				slog.Info("Optimized Dockerfile generated successfully", "path", output)
-			} else {
-				fmt.Println(optimizedContent)
-			}
-		},
+	if err := os.WriteFile(output, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	slog.Info("done", "path", output)
+	return nil
+}
+
+func runAnalyze(_ *cobra.Command, args []string) error {
+	path := args[0]
+
+	df, err := optimizer.ParseFile(path)
+	if err != nil {
+		return fmt.Errorf("parse %q: %w", path, err)
 	}
 
-	rootCmd.Flags().StringVarP(&baseImage, "base", "b", "golang:1.22-alpine", "Base image for the build stage")
-	rootCmd.Flags().StringSliceVarP(&artifacts, "artifacts", "a", []string{"/app/binary"}, "List of artifacts to copy to the runtime stage")
-	rootCmd.Flags().StringVarP(&output, "output", "o", "Dockerfile.optimized", "Path to save the optimized Dockerfile")
+	fmt.Printf("Dockerfile: %s\n", path)
+	fmt.Printf("  Base image:    %s\n", df.BaseImage)
+	fmt.Printf("  Multi-stage:   %v\n", df.IsMultiStage)
+	fmt.Printf("  Distroless:    %v\n", df.HasDistroless)
+	fmt.Printf("  Non-root user: %v\n", df.HasNobodyUser)
+	fmt.Printf("  Stages:        %d\n", len(df.Stages))
 
+	issues := optimizer.AnalyzeIssues(df)
+	if len(issues) == 0 {
+		fmt.Println("\n✓ No issues found")
+		return nil
+	}
+
+	fmt.Printf("\nIssues (%d):\n", len(issues))
+	for i, issue := range issues {
+		fmt.Printf("  %d. %s\n", i+1, issue)
+	}
+	return nil
+}
+
+func main() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
