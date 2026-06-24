@@ -1,0 +1,17 @@
+# Binaries
+slimmer
+*.exe
+*.o
+*.so
+
+# Go
+vendor/
+
+# OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Dockerfile output
+Dockerfile.optimized
