@@ -2,10 +2,10 @@ package optimizer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
-
-	"github.com/docker/docker/client"
 )
 
 // ImageStats holds size information retrieved from the Docker daemon.
@@ -23,38 +23,55 @@ func (s *ImageStats) HumanSize() string {
 	return humanBytes(s.SizeBytes)
 }
 
-// InspectImage connects to the local Docker daemon and returns size metadata
-// for the given image reference (e.g. "myapp:latest" or a digest).
+// dockerInspectResult mirrors the fields we care about from `docker inspect`.
+type dockerInspectResult struct {
+	ID           string `json:"Id"`
+	Size         int64  `json:"Size"`
+	Architecture string `json:"Architecture"`
+	Os           string `json:"Os"`
+	RootFS       struct {
+		Layers []string `json:"Layers"`
+	} `json:"RootFS"`
+}
+
+// InspectImage calls `docker inspect` and returns size metadata for the given
+// image reference. Requires the Docker CLI to be available in PATH.
 func InspectImage(ctx context.Context, imageRef string) (*ImageStats, error) {
-	cli, err := client.NewClientWithOpts(
-		client.FromEnv,
-		client.WithAPIVersionNegotiation(),
-	)
+	out, err := exec.CommandContext(ctx, "docker", "inspect",
+		"--type", "image",
+		imageRef,
+	).Output()
 	if err != nil {
-		return nil, fmt.Errorf("connect to Docker daemon: %w", err)
-	}
-	defer cli.Close()
-
-	info, _, err := cli.ImageInspectWithRaw(ctx, imageRef)
-	if err != nil {
-		return nil, fmt.Errorf("inspect image %q: %w", imageRef, err)
+		if ee, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("docker inspect %q: %s", imageRef, strings.TrimSpace(string(ee.Stderr)))
+		}
+		return nil, fmt.Errorf("docker inspect %q: %w", imageRef, err)
 	}
 
+	var results []dockerInspectResult
+	if err := json.Unmarshal(out, &results); err != nil {
+		return nil, fmt.Errorf("parse docker inspect output: %w", err)
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("image %q not found", imageRef)
+	}
+
+	r := results[0]
 	return &ImageStats{
 		Ref:          imageRef,
-		ID:           shortID(info.ID),
-		SizeBytes:    info.Size,
-		Layers:       len(info.RootFS.Layers),
-		Architecture: info.Architecture,
-		OS:           info.Os,
+		ID:           shortID(r.ID),
+		SizeBytes:    r.Size,
+		Layers:       len(r.RootFS.Layers),
+		Architecture: r.Architecture,
+		OS:           r.Os,
 	}, nil
 }
 
-// CompareImages measures two images and returns the reduction statistics.
+// ComparisonResult holds the before/after measurement and computed reduction.
 type ComparisonResult struct {
-	Before      *ImageStats
-	After       *ImageStats
-	SavedBytes  int64
+	Before       *ImageStats
+	After        *ImageStats
+	SavedBytes   int64
 	ReductionPct float64
 }
 
@@ -83,7 +100,7 @@ func CompareImages(ctx context.Context, beforeRef, afterRef string) (*Comparison
 	}, nil
 }
 
-// FormatBytes is the exported variant of humanBytes for use in cmd packages.
+// FormatBytes is the exported variant for use in cmd packages.
 func FormatBytes(b int64) string { return humanBytes(b) }
 
 func humanBytes(b int64) string {
