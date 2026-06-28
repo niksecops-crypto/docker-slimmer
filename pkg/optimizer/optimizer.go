@@ -2,14 +2,9 @@ package optimizer
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
-
-// Instruction represents a Dockerfile instruction
-type Instruction struct {
-	Command string
-	Args    string
-}
 
 // Optimizer analyzes and optimizes Dockerfile instructions
 type Optimizer struct {
@@ -27,10 +22,15 @@ func (o *Optimizer) Optimize(artifacts []string, envVars map[string]string) stri
 	// Build Stage
 	builder.WriteString(fmt.Sprintf("# Build stage\nFROM %s AS builder\n", o.baseImage))
 	builder.WriteString("WORKDIR /app\n")
-	
-	// Add environment variables
-	for k, v := range envVars {
-		builder.WriteString(fmt.Sprintf("ENV %s=%s\n", k, v))
+
+	// Add environment variables (sorted for deterministic output)
+	var keys []string
+	for k := range envVars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		builder.WriteString(fmt.Sprintf("ENV %s=%s\n", k, envVars[k]))
 	}
 
 	// Runtime Stage (Distroless or Alpine for minimal footprint)
@@ -51,7 +51,7 @@ func (o *Optimizer) Optimize(artifacts []string, envVars map[string]string) stri
 
 // CleanCommands returns optimized shell commands (removing caches, temporary files)
 func (o *Optimizer) CleanCommands(pkgManager string) string {
-	switch pkgManager {
+	switch strings.ToLower(pkgManager) {
 	case "apt":
 		return "apt-get update && apt-get install -y --no-install-recommends %s && rm -rf /var/lib/apt/lists/*"
 	case "apk":

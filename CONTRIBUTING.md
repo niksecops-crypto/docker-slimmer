@@ -23,7 +23,7 @@ make test
 make test    # full suite with race detector
 ```
 
-No Docker daemon needed — the optimizer and parser are pure Go.
+No Docker daemon needed for the parser, optimizer, or mocked unit tests. A running Docker daemon is required if you run the built binary's measure command directly or run integration/measure tests that query real images.
 
 ## Adding Optimizer Rules
 
