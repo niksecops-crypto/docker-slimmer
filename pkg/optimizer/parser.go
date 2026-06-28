@@ -8,12 +8,12 @@ import (
 
 // ParsedDockerfile holds structured information extracted from an existing Dockerfile.
 type ParsedDockerfile struct {
-	BaseImage   string
-	IsMultiStage bool
-	HasDistroless bool
-	HasNobodyUser bool
+	BaseImage      string
+	IsMultiStage   bool
+	HasDistroless  bool
+	HasNobodyUser  bool
 	PackageManager string
-	Stages      []Stage
+	Stages         []Stage
 }
 
 // Stage represents one FROM block in a Dockerfile.
@@ -31,7 +31,12 @@ func ParseFile(path string) (*ParsedDockerfile, error) {
 	}
 	defer f.Close()
 
-	return parse(bufio.NewScanner(f)), nil
+	scanner := bufio.NewScanner(f)
+	res := parse(scanner)
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // ParseString parses Dockerfile content from a string (useful in tests).
@@ -52,13 +57,25 @@ func parse(scanner *bufio.Scanner) *ParsedDockerfile {
 		upper := strings.ToUpper(line)
 
 		switch {
-		case strings.HasPrefix(upper, "FROM "):
+		case strings.HasPrefix(upper, "FROM"):
 			parts := strings.Fields(line)
-			image := parts[1]
+			if len(parts) == 0 || !strings.EqualFold(parts[0], "from") {
+				continue
+			}
+			// Filter out --platform flag if present
+			var filteredParts []string
+			for _, p := range parts {
+				if !strings.HasPrefix(strings.ToLower(p), "--platform=") {
+					filteredParts = append(filteredParts, p)
+				}
+			}
+			if len(filteredParts) < 2 {
+				continue
+			}
+			image := filteredParts[1]
 			name := ""
-			// FROM image AS name
-			if len(parts) >= 4 && strings.EqualFold(parts[2], "as") {
-				name = parts[3]
+			if len(filteredParts) >= 4 && strings.EqualFold(filteredParts[2], "as") {
+				name = filteredParts[3]
 			}
 			s := Stage{Image: image, Name: name}
 			result.Stages = append(result.Stages, s)
@@ -80,8 +97,14 @@ func parse(scanner *bufio.Scanner) *ParsedDockerfile {
 				result.PackageManager = "apk"
 			}
 
-			if strings.Contains(upper, "USER NOBODY") || strings.Contains(upper, "USER 65534") {
-				result.HasNobodyUser = true
+			if strings.HasPrefix(upper, "USER") {
+				userParts := strings.Fields(upper)
+				if len(userParts) >= 2 && userParts[0] == "USER" {
+					u := userParts[1]
+					if u == "NOBODY" || u == "65534" {
+						result.HasNobodyUser = true
+					}
+				}
 			}
 		}
 	}
