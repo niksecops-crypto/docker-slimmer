@@ -11,13 +11,6 @@ import (
 	"github.com/niksecops-crypto/docker-slimmer/pkg/optimizer"
 )
 
-type mockCLIError struct {
-	msg    string
-	stderr []byte
-}
-
-func (e *mockCLIError) Error() string   { return e.msg }
-func (e *mockCLIError) Stderr() []byte { return e.stderr }
 
 type mockCLIRunner struct {
 	runFunc func(ctx context.Context, name string, arg ...string) ([]byte, error)
@@ -224,3 +217,55 @@ func TestCLI_Measure_Compare(t *testing.T) {
 		t.Errorf("unexpected output: %s", out)
 	}
 }
+
+func TestCLI_InvalidCommand(t *testing.T) {
+	_, _, err := runCommand([]string{"nonexistent-command"})
+	if err == nil {
+		t.Fatal("expected error for nonexistent command, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown command") {
+		t.Errorf("expected unknown command error, got: %v", err)
+	}
+}
+
+func TestCLI_InvalidFlag(t *testing.T) {
+	_, _, err := runCommand([]string{"--unknown-flag"})
+	if err == nil {
+		t.Fatal("expected error for unknown global flag, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("expected unknown flag error, got: %v", err)
+	}
+}
+
+func TestCLI_Analyze_FileNotFound(t *testing.T) {
+	_, _, err := runCommand([]string{"analyze", "/nonexistent/path/Dockerfile"})
+	if err == nil {
+		t.Fatal("expected error for nonexistent file, got nil")
+	}
+	if !strings.Contains(err.Error(), "no such file or directory") && !strings.Contains(err.Error(), "read config") {
+		t.Errorf("expected file not found error, got: %v", err)
+	}
+}
+
+func TestCLI_Generate_InvalidFlag(t *testing.T) {
+	_, _, err := runCommand([]string{"generate", "--nonexistent-flag"})
+	if err == nil {
+		t.Fatal("expected error for unknown generate flag, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("expected unknown flag error, got: %v", err)
+	}
+}
+
+func TestCLI_Measure_InvalidFlagsCombo(t *testing.T) {
+	// If only --before is provided without --after
+	_, _, err := runCommand([]string{"measure", "--before", "some-image"})
+	if err == nil {
+		t.Fatal("expected error for incomplete before/after flags, got nil")
+	}
+	if !strings.Contains(err.Error(), "provide an image reference or use --before/--after") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
