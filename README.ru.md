@@ -34,7 +34,7 @@ go build -o slimmer ./cmd/slimmer
 Оптимизация старого Go-образа путем извлечения бинарного файла в Distroless рантайм:
 
 ```bash
-./slimmer --base golang:1.22-alpine --artifacts /app/main --output Dockerfile.optimized
+./slimmer generate --base golang:1.22-alpine --artifacts /app/main --output Dockerfile.optimized
 ```
 
 ## Рекомендации для продакшена

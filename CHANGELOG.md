@@ -5,7 +5,7 @@
 - `analyze` subcommand: parses existing Dockerfiles and reports issues
 - Dockerfile parser (`pkg/optimizer/parser.go`) with multi-stage detection
 - Distroless and non-root user detection in analysis
-- Unit tests for optimizer and parser (~85% coverage)
+- Unit tests for optimizer and parser (~44% overall module statement coverage)
 - GitHub Actions CI with cross-platform release builds
 - Makefile with `build`, `test`, `lint` targets
 - Dockerfile (distroless, multi-stage)

@@ -8,6 +8,22 @@ import (
 	"strings"
 )
 
+// CommandRunner defines the interface for running commands.
+type CommandRunner interface {
+	Run(ctx context.Context, name string, arg ...string) ([]byte, error)
+}
+
+// RealRunner implements CommandRunner using os/exec.
+type RealRunner struct{}
+
+// Run executes the command using exec.CommandContext.
+func (r *RealRunner) Run(ctx context.Context, name string, arg ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, arg...).Output()
+}
+
+// Runner is the active command runner.
+var Runner CommandRunner = &RealRunner{}
+
 // ImageStats holds size information retrieved from the Docker daemon.
 type ImageStats struct {
 	Ref          string
@@ -37,15 +53,20 @@ type dockerInspectResult struct {
 // InspectImage calls `docker inspect` and returns size metadata for the given
 // image reference. Requires the Docker CLI to be available in PATH.
 func InspectImage(ctx context.Context, imageRef string) (*ImageStats, error) {
-	out, err := exec.CommandContext(ctx, "docker", "inspect",
+	out, err := Runner.Run(ctx, "docker", "inspect",
 		"--type", "image",
 		imageRef,
-	).Output()
+	)
 	if err != nil {
+		var stderr string
 		if ee, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("docker inspect %q: %s", imageRef, strings.TrimSpace(string(ee.Stderr)))
+			stderr = strings.TrimSpace(string(ee.Stderr))
+		} else if se, ok := err.(interface{ Stderr() []byte }); ok {
+			stderr = strings.TrimSpace(string(se.Stderr()))
+		} else {
+			stderr = err.Error()
 		}
-		return nil, fmt.Errorf("docker inspect %q: %w", imageRef, err)
+		return nil, fmt.Errorf("docker inspect %q: %s", imageRef, stderr)
 	}
 
 	var results []dockerInspectResult

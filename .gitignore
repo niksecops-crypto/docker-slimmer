@@ -1,5 +1,5 @@
 # Binaries
-slimmer
+/slimmer
 *.exe
 *.o
 *.so
